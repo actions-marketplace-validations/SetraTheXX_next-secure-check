@@ -3,14 +3,20 @@ import {
   findCommandExecutionMatches,
   findDangerouslySetInnerHtmlMatches,
   findPasswordHandlingMatches,
+  findRequestBoundaryInputMatches,
   findRawSqlConcatMatches,
   findRouteHandlerExports,
+  findServerActionMatches,
+  findUnvalidatedOutboundRequestMatches,
+  findUnvalidatedRedirectMatches,
   findUploadRouteHandlerMatches,
   hasAuthIntentSignal,
   hasRateLimitIntentSignal,
+  hasRequestBoundaryGuardSignal,
   hasValidationIntentSignal
 } from "./ast-utils.js";
 import { codeFiles, configFiles, createFinding, findMatches } from "./rule-utils.js";
+import { analyzeSecurityHeaders, findBroadImageDomainMatches, findSessionCookieMatches } from "./config-hardening.js";
 import { isApiRouteFilePath } from "./route-ast.js";
 
 export const envFileCommittedRule: Rule = {
@@ -309,21 +315,32 @@ export const missingSecurityHeadersRule: Rule = {
       return [];
     }
 
-    const configuredHeaders = getConfiguredSecurityHeaders(configFiles(context).map((file) => file.content).join("\n"));
-    if (configuredHeaders.missing.length === 0) {
+    const headerAnalysis = analyzeSecurityHeaders(configFiles(context));
+    const requiredHeaders = ["Content-Security-Policy", "frame protection", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"] as const;
+    const missingHeaders = requiredHeaders.filter((header) => !headerAnalysis.configured.has(header));
+    if (missingHeaders.length === 0) {
       return [];
     }
 
-    const anchorFile = context.files.find((file) => file.path === "package.json") ?? context.files[0];
+    const anchorFile = configFiles(context)[0] ?? context.files.find((file) => file.path === "package.json") ?? context.files[0];
     if (!anchorFile) {
       return [];
     }
 
+    const configured = requiredHeaders.filter((header) => headerAnalysis.configured.has(header));
+    const evidence = configured.length > 0
+      ? `Recognized static security headers: ${configured.join(", ")}.`
+      : "No recognized static Next.js security header configuration found.";
+    const uncertainty = headerAnalysis.hasDynamicConfiguration
+      ? " Dynamic header names or values were not evaluated."
+      : " Runtime, hosting, and reverse-proxy headers were not evaluated.";
     return [
       createFinding({
         rule: missingSecurityHeadersRule,
         file: anchorFile,
-        description: `Missing common security header configuration: ${configuredHeaders.missing.join(", ")}.`,
+        evidence,
+        evidencePath: headerAnalysis.evidencePaths.length > 0 ? headerAnalysis.evidencePaths.join(", ") : undefined,
+        description: `Missing common security header configuration: ${missingHeaders.join(", ")}.${uncertainty} This is a bounded review signal, not proof that every response omits these headers.`,
         recommendation:
           "Configure Content-Security-Policy, frame protection, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy."
       })
@@ -470,21 +487,159 @@ export const apiRouteWithoutValidationRule: Rule = {
   category: "validation",
   confidence: "MEDIUM",
   scan(context) {
-    const contentSignals = /(\breq\.body\b|\breq\.query\b|\breq\.json\(|request\.json\(|request\.formData\(|searchParams|nextUrl\.searchParams)/i;
-
     return codeFiles(context)
       .filter((file) => isApiRouteFilePath(file.path))
       .filter((file) => findRouteHandlerExports(file).length > 0)
-      .filter((file) => contentSignals.test(file.content))
-      .filter((file) => !hasValidationIntentSignal(file))
-      .map((file) =>
-        createFinding({
+      .map((file) => {
+        const requestBoundaryInputs = findRequestBoundaryInputMatches(file);
+        if (requestBoundaryInputs.length === 0 || hasValidationIntentSignal(file) || hasRequestBoundaryGuardSignal(file)) {
+          return undefined;
+        }
+
+        const [source] = requestBoundaryInputs;
+        return createFinding({
           rule: apiRouteWithoutValidationRule,
           file,
+          evidencePath: source?.evidencePath,
           description: "API routes that consume user input should validate the input before using it.",
           recommendation: "Add input validation with a schema library such as Zod, Yup, Joi, or a clear custom validation layer."
+        });
+      })
+      .filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
+  }
+};
+
+export const sessionCookieWithoutSecurityFlagsRule: Rule = {
+  id: "auth/session-cookie-without-security-flags",
+  title: "Auth/session cookie may lack secure flags",
+  severity: "MEDIUM",
+  category: "auth",
+  confidence: "MEDIUM",
+  scan(context) {
+    return codeFiles(context).flatMap((file) =>
+      findSessionCookieMatches(file).map((match) => {
+        const partial = match.missingFlags.length <= 1 && match.dynamicFlags.length === 0;
+        const uncertain = match.dynamicFlags.length > 0;
+        const findingRule = partial || uncertain
+          ? { ...sessionCookieWithoutSecurityFlagsRule, severity: "LOW" as const, confidence: "LOW" as const }
+          : sessionCookieWithoutSecurityFlagsRule;
+        const present = match.presentFlags.length > 0 ? `visible ${match.presentFlags.join(", ")}` : "no statically provable flag state";
+        const missing = match.missingFlags.length > 0 ? `; missing ${match.missingFlags.join(", ")}` : "";
+        const dynamic = match.dynamicFlags.length > 0 ? `; dynamic ${match.dynamicFlags.join(", ")}` : "";
+        const unprovenFlags = [...match.missingFlags, ...match.dynamicFlags];
+
+        return createFinding({
+          rule: findingRule,
+          file,
+          line: match.line,
+          column: match.column,
+          evidence: `Recognized auth/session-like cookie write; ${present}${missing}${dynamic}. Cookie names and values are intentionally omitted.`,
+          description:
+            `An auth/session-like cookie write does not statically prove all security flags (${unprovenFlags.join(", ") || "unknown"}). This is a bounded review signal, not proof of an insecure runtime cookie.`,
+          recommendation:
+            "Review the cookie options and set httpOnly: true, secure: true, and an intentional sameSite value such as 'lax' or 'strict' where appropriate.",
+          references: [
+            "https://nextjs.org/docs/app/api-reference/functions/cookies",
+            "https://owasp.org/www-community/controls/SecureCookieAttribute"
+          ]
+        });
+      })
+    );
+  }
+};
+
+export const broadNextImageDomainsRule: Rule = {
+  id: "config/next-image-domains",
+  title: "Broad Next.js image domains configuration detected",
+  severity: "MEDIUM",
+  category: "config",
+  confidence: "HIGH",
+  scan(context) {
+    return configFiles(context).flatMap((file) =>
+      findBroadImageDomainMatches(file).map((match) =>
+        createFinding({
+          rule: broadNextImageDomainsRule,
+          file,
+          line: match.line,
+          column: match.column,
+          evidence: "Static images.domains configuration accepts a broad host-only allowlist; configured host values are intentionally omitted.",
+          description:
+            "Next.js images.domains is a broad, deprecated host configuration and does not constrain protocol, port, or path. This is a bounded configuration-hardening review signal, not proof of an exploitable image issue.",
+          recommendation: "Replace images.domains with explicit images.remotePatterns entries that constrain protocol, hostname, port, and pathname where possible.",
+          references: [
+            "https://nextjs.org/docs/app/api-reference/components/image#remotepatterns",
+            "https://nextjs.org/docs/messages/next-image-unconfigured-host"
+          ]
         })
-      );
+      )
+    );
+  }
+};
+
+export const unvalidatedRedirectTargetRule: Rule = {
+  id: "redirect/unvalidated-target",
+  title: "Request-derived redirect target may be unvalidated",
+  severity: "MEDIUM",
+  category: "redirect",
+  confidence: "MEDIUM",
+  scan(context) {
+    return codeFiles(context).flatMap((file) =>
+      findUnvalidatedRedirectMatches(file).map((match) => {
+        const internalRelative = match.destinationKind === "internal-relative";
+        const findingRule = internalRelative
+          ? { ...unvalidatedRedirectTargetRule, severity: "LOW" as const, confidence: "LOW" as const }
+          : unvalidatedRedirectTargetRule;
+
+        return createFinding({
+          rule: findingRule,
+          file,
+          line: match.line,
+          column: match.column,
+          evidence: match.evidence,
+          evidencePath: match.evidencePath,
+          description: internalRelative
+            ? `A request-derived value reaches ${match.sinkName} through an internal-relative path (${match.evidencePath}) without a recognized path guard. This is a bounded review signal, not proof of exploitability.`
+            : `A request-derived value reaches ${match.sinkName} (${match.evidencePath}) without a recognized internal-path, host allowlist, or same-origin guard. This is a bounded review signal, not proof of exploitability.`,
+          recommendation: internalRelative
+            ? "Validate the destination as an internal relative path, reject protocol-relative // targets, or map a short key through a fixed allowlist before redirecting."
+            : "Prefer a fixed internal destination, or validate the URL against an explicit host/origin allowlist before redirecting. Do not pass arbitrary request input to a redirect sink.",
+          references: [
+            "https://nextjs.org/docs/app/guides/redirecting",
+            "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"
+          ]
+        });
+      })
+    );
+  }
+};
+
+export const unvalidatedOutboundRequestUrlRule: Rule = {
+  id: "ssrf/unvalidated-outbound-url",
+  title: "Request-derived outbound URL may enable SSRF",
+  severity: "HIGH",
+  category: "ssrf",
+  confidence: "MEDIUM",
+  scan(context) {
+    return codeFiles(context).flatMap((file) =>
+      findUnvalidatedOutboundRequestMatches(file).map((match) =>
+        createFinding({
+          rule: unvalidatedOutboundRequestUrlRule,
+          file,
+          line: match.line,
+          column: match.column,
+          evidence: match.evidence,
+          evidencePath: match.evidencePath,
+          description:
+            `A request-derived URL reaches ${match.sinkName} (${match.evidencePath}) without a recognized host allowlist, URL validation, private-network block, or safe proxy helper. This is a bounded review signal, not proof of exploitability.`,
+          recommendation:
+            "Validate outbound URLs with an explicit host allowlist, reject private or loopback networks, and keep proxy destinations fixed when possible.",
+          references: [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html",
+            "https://nextjs.org/docs/app/guides/data-security"
+          ]
+        })
+      )
+    );
   }
 };
 
@@ -522,6 +677,46 @@ export const adminRouteWithoutAuthRule: Rule = {
         })
       ];
     });
+  }
+};
+
+export const serverActionWithoutGuardsRule: Rule = {
+  id: "auth/server-action-without-guards",
+  title: "Server Action may lack auth or input validation",
+  severity: "MEDIUM",
+  category: "auth",
+  confidence: "MEDIUM",
+  scan(context) {
+    return codeFiles(context).flatMap((file) =>
+      findServerActionMatches(file)
+        .filter((match) => !match.hasAuthIntent || !match.hasValidationIntent)
+        .map((match) => {
+          const missingControls = [
+            ...(match.hasAuthIntent ? [] : ["authentication"]),
+            ...(match.hasValidationIntent ? [] : ["input validation"])
+          ];
+          const partial = missingControls.length === 1;
+          const findingRule = partial
+            ? { ...serverActionWithoutGuardsRule, severity: "LOW" as const, confidence: "LOW" as const }
+            : serverActionWithoutGuardsRule;
+
+          return createFinding({
+            rule: findingRule,
+            file,
+            line: match.line,
+            column: match.column,
+            evidence: match.evidence,
+            evidencePath: match.evidencePath,
+            description: `Exported Server Action/Function "${match.boundaryName}" consumes action input (${match.evidencePath}) but has no recognized ${missingControls.join(
+              " or "
+            )} intent in the same function. This is a bounded review signal, not proof of exploitability.`,
+            recommendation:
+              missingControls.length === 2
+                ? "Add an explicit authentication check and schema or equivalent input validation before using the action input."
+                : `Add a visible ${missingControls[0]} check before using the action input.`
+          });
+        })
+    );
   }
 };
 
@@ -601,6 +796,8 @@ export const builtInSecurityRules: Rule[] = [
   loginWithoutRateLimitRule,
   passwordWithoutHashingRule,
   rawSqlConcatRule,
+  unvalidatedRedirectTargetRule,
+  unvalidatedOutboundRequestUrlRule,
   missingSecurityHeadersRule,
   nextPublicSecretRule,
   registerWithoutRateLimitRule,
@@ -608,6 +805,9 @@ export const builtInSecurityRules: Rule[] = [
   missingFileSizeLimitRule,
   apiRouteWithoutValidationRule,
   adminRouteWithoutAuthRule,
+  serverActionWithoutGuardsRule,
+  sessionCookieWithoutSecurityFlagsRule,
+  broadNextImageDomainsRule,
   productionBrowserSourceMapsRule,
   nextPoweredByHeaderRule
 ];
@@ -705,35 +905,6 @@ function isCommittedEnvFileName(fileName: string): boolean {
   return /^\.env(?:\.(?:local|production|production\.local|development|development\.local|test|test\.local|staging|staging\.local))?$/.test(
     fileName
   );
-}
-
-function getConfiguredSecurityHeaders(content: string): { missing: string[] } {
-  const requiredHeaders = [
-    {
-      name: "Content-Security-Policy",
-      detected: /Content-Security-Policy/i.test(content)
-    },
-    {
-      name: "frame protection",
-      detected: /X-Frame-Options/i.test(content) || /frame-ancestors/i.test(content)
-    },
-    {
-      name: "X-Content-Type-Options",
-      detected: /X-Content-Type-Options/i.test(content)
-    },
-    {
-      name: "Referrer-Policy",
-      detected: /Referrer-Policy/i.test(content)
-    },
-    {
-      name: "Permissions-Policy",
-      detected: /Permissions-Policy/i.test(content)
-    }
-  ];
-
-  return {
-    missing: requiredHeaders.filter((header) => !header.detected).map((header) => header.name)
-  };
 }
 
 function extractAssignedStringLiteral(line: string): string | undefined {

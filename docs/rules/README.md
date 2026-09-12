@@ -25,11 +25,19 @@ Each rule document should include:
 - `injection/command-exec`
 - `injection/raw-sql-concat`
 
+### Redirects
+- `redirect/unvalidated-target`
+
+### Server-Side Request Forgery (SSRF)
+- [`ssrf/unvalidated-outbound-url`](./unvalidated-outbound-url.md)
+
 ### Authentication & Authorization
 - `auth/login-without-rate-limit`
 - `auth/register-without-rate-limit`
 - `auth/password-without-hashing-library`
 - `auth/admin-route-without-auth`
+- `auth/server-action-without-guards`
+- [`auth/session-cookie-without-security-flags`](./session-cookie-without-security-flags.md)
 
 ### API & Validation
 - `validation/api-route-without-validation`
@@ -45,6 +53,7 @@ Each rule document should include:
 - `config/insecure-cors-wildcard`
 - `config/production-browser-source-maps`
 - `config/next-powered-by-header`
+- [`config/next-image-domains`](./next-image-domains.md)
 
 ### Headers
 - `headers/missing-security-headers`

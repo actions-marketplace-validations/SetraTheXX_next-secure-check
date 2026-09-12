@@ -2,6 +2,13 @@
 
 This folder contains manual validation notes for project phases and milestone checks.
 
+Current published status (reviewed 2026-09-03):
+
+- npm CLI and internal packages: `v0.6.0`, with 25 built-in rules
+- reusable GitHub Action: `v1.2.0`, available through `@v1`
+- current validation line: 453 package tests, 147 web tests, 600 total tests
+- current release quality gate: complete; no known technical release blocker
+
 Frozen #13 pre-implementation validation baseline:
 
 ```txt
@@ -31,6 +38,48 @@ presentation, and CLI false-negative guidance are documented in
 The #20 v0.5 release audit, package publication, coordinated Action release,
 demo contract, and feedback review are documented in
 [phase-17-v05-release.md](./phase-17-v05-release.md).
+
+The #29 v0.6 request-boundary baseline, compatibility contract, slice
+boundaries, and performance/privacy budget are documented in
+[phase-18-v06-request-boundary-contract.md](./phase-18-v06-request-boundary-contract.md)
+and
+[0003-v0.6-request-boundary-contract.md](../decisions/0003-v0.6-request-boundary-contract.md).
+
+The #30 Proxy/dynamic-route slice, static matcher handling, bounded request
+source evidence, and validation/allowlist guard coverage are documented in
+[phase-19-v06-proxy-dynamic-routes.md](./phase-19-v06-proxy-dynamic-routes.md).
+
+The #31 Server Action and Server Function boundary, same-function auth and
+validation intent, bounded aliases, and malformed-input coverage are documented
+in [phase-20-v06-server-actions.md](./phase-20-v06-server-actions.md).
+
+The #32 bounded unvalidated redirect source-to-sink flow, recognized Next.js
+redirect sinks, destination guards, stop conditions, and validation coverage
+are documented in
+[phase-21-v06-unvalidated-redirects.md](./phase-21-v06-unvalidated-redirects.md).
+
+The #33 bounded SSRF source-to-sink flow, recognized outbound HTTP sinks,
+URL-like request sources, destination guards, stop conditions, and shared-flow
+validation are documented in
+[phase-22-v06-ssrf-flow.md](./phase-22-v06-ssrf-flow.md).
+
+The post-#33 working line contained 426 package tests, 147 web tests, and 573
+total tests. After #34, the current working line contains 453 package tests,
+147 web tests, and 600 total tests. The published v0.5.0 baseline remains
+separately documented at 20 rules; the published `v0.6.0` line now contains
+the five bounded v0.6 rules.
+
+The #34 session-cookie, security-header, and broad image-domain signals,
+including privacy-safe evidence, App/Pages Router coverage, JavaScript and
+TypeScript parsing, CommonJS config discovery, and the release-gate result are
+documented in
+[phase-23-v06-config-hardening.md](./phase-23-v06-config-hardening.md) and
+[0007-v0.6-config-hardening-signals.md](../decisions/0007-v0.6-config-hardening-signals.md).
+
+The #35 v0.6 quality gate, minimized development-rule matrix, opt-in
+real-world smoke observations, package/Action contract, and independent
+review handoff are documented in
+[phase-24-v06-quality-gate.md](./phase-24-v06-quality-gate.md).
 
 Historical v0.1 baseline:
 

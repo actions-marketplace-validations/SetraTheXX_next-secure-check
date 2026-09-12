@@ -4,11 +4,11 @@ Public progress board for `next-secure-check`. It records completed release work
 
 | Field | Value |
 | --- | --- |
-| Last reviewed | 2026-08-29 |
-| Current release | `v0.5.0` stable on npm and GitHub; reusable Action `v1.1.0` is available through `@v1` |
-| Next release focus | `v0.6.0` - Next.js request-boundary coverage with bounded, explainable flows |
-| Current next task | [Issue #29](https://github.com/SetraTheXX/next-secure-check/issues/29) - freeze the v0.6 baseline and request-boundary contract |
-| Release blocker | No v0.5 release blocker; v0.6 implementation and real-world feedback are the active follow-up |
+| Last reviewed | 2026-09-03 |
+| Current release | `v0.6.0` stable on npm and GitHub; reusable Action `v1.2.0` is available through `@v1` |
+| Next release focus | Post-v0.6 feedback, adoption, and confirmed regression reduction |
+| Current next task | Collect bounded real-user feedback and convert confirmed observations into small fixtures |
+| Release blocker | No known technical blocker for the published v0.6.0 line; future changes remain feedback-driven |
 
 ## Progress Legend
 
@@ -24,19 +24,29 @@ A checked item means the implementation or documentation exists and the relevant
 - [x] `v0.4.0` published as the bounded-analysis feature release.
 - [x] `v0.4.1` published as the CLI documentation-only patch.
 - [x] npm package, workspace package metadata, GitHub Actions validation, pack smoke, and release documentation completed.
-- [x] Current validation baseline: 366 package tests, 147 web tests, 513 total tests.
+- [x] v0.5.0 release validation baseline: 366 package tests, 147 web tests, 513 total tests.
+- [x] v0.6 development validation after #34: 453 package tests, 147 web tests, 600 total tests.
 - [x] `v0.5.0` package metadata, documentation, demo, npm publication, and exact GitHub release/tag completed.
 - [x] Reusable GitHub Action `v1.1.0` released and floating `@v1` tag coordinated with the published `0.5.0` CLI.
 - [x] Repository self-scan with `--preset app`: 100/100, `excellent`, 0 findings.
 - [x] Vulnerable fixture with `--preset strict`: 0/100, `critical`, 26 findings.
 - [x] Secure fixture with `--preset app`: 99/100, `excellent`, 1 LOW finding.
+- [x] v0.6 development line: 25 built-in rules; published v0.5.0 baseline remains 20 rules.
+- [x] v0.6 #35 quality gate: legacy baseline, five-rule positive/safe matrix, CLI smoke, package contract, and feedback handoff completed.
+- [x] v0.6.0 release: four packages published, GitHub release/tag created, and public npm latest verified.
+- [x] Reusable GitHub Action v1.2.0: Action pin, release/tag, and floating `@v1` coordination verified.
+- [x] v0.6.0 README demo: checked-in tape and GIF regenerated from the v0.6.0 release-commit CLI flow; published npm smoke verified separately.
 
-### Open post-release work
+### Post-release follow-up (not current v0.6 release blockers)
 
 - [x] Publish the aligned `v0.5.0` packages and update the reusable Action after npm availability was verified.
-- [ ] [Issue #12](https://github.com/SetraTheXX/next-secure-check/issues/12) - finalize the optional demo edit, Turkish voice-over, English subtitles, and final privacy review.
+- [x] Prepare and publish the aligned `0.6.0` package manifests after the quality gate.
+- [x] Update `action.yml`, release the follow-up Action version, and move `@v1` after `0.6.0` became available on npm.
+- [x] Regenerate the README demo from the v0.6.0 release-commit CLI without adding verbose rule-list output; published npm smoke is recorded separately.
+- [ ] [Issue #12](https://github.com/SetraTheXX/next-secure-check/issues/12) - optional demo/video enhancement; separate from the completed v0.6 release gate.
 - [ ] Collect feedback from real Next.js users before committing to additional rule surface.
 - [ ] Record confirmed false-positive reductions and false-negative recoveries as evidence, not as marketing claims.
+- [x] Record opt-in public-repository smoke observations without storing raw reports or making accuracy claims.
 
 ### Public evidence
 
@@ -53,6 +63,18 @@ A checked item means the implementation or documentation exists and the relevant
 - [x] [v0.5 auth and middleware intent](./docs/validation/phase-15-auth-middleware.md)
 - [x] [v0.5 evidence and reporter explanations](./docs/validation/phase-16-evidence-reporter.md)
 - [x] [v0.5 release, npm, and Action audit](./docs/validation/phase-17-v05-release.md)
+- [x] [v0.6 request-boundary contract](./docs/decisions/0003-v0.6-request-boundary-contract.md)
+- [x] [v0.6 request-boundary validation](./docs/validation/phase-18-v06-request-boundary-contract.md)
+- [x] [v0.6 Proxy and dynamic route validation](./docs/validation/phase-19-v06-proxy-dynamic-routes.md)
+- [x] [v0.6 Server Action guard validation](./docs/validation/phase-20-v06-server-actions.md)
+- [x] [v0.6 Server Action guard decision](./docs/decisions/0004-v0.6-server-action-guard-signal.md)
+- [x] [v0.6 unvalidated redirect validation](./docs/validation/phase-21-v06-unvalidated-redirects.md)
+- [x] [v0.6 unvalidated redirect decision](./docs/decisions/0005-v0.6-unvalidated-redirect-signal.md)
+- [x] [v0.6 bounded SSRF validation](./docs/validation/phase-22-v06-ssrf-flow.md)
+- [x] [v0.6 bounded SSRF decision](./docs/decisions/0006-v0.6-ssrf-signal.md)
+- [x] [v0.6 cookie and Next.js configuration hardening validation](./docs/validation/phase-23-v06-config-hardening.md)
+- [x] [v0.6 cookie and Next.js configuration hardening decision](./docs/decisions/0007-v0.6-config-hardening-signals.md)
+- [x] [v0.6 quality gate and release feedback](./docs/validation/phase-24-v06-quality-gate.md)
 - [x] [v0.4.1 GitHub release](https://github.com/SetraTheXX/next-secure-check/releases/tag/v0.4.1)
 - [x] [v0.5.0 GitHub release](https://github.com/SetraTheXX/next-secure-check/releases/tag/v0.5.0)
 - [x] [release history](./CHANGELOG.md)
@@ -175,7 +197,7 @@ The first production slice should be a bounded `injection/raw-sql-concat` flow b
 - [x] [#17 Auth and middleware intent signals](https://github.com/SetraTheXX/next-secure-check/issues/17)
 - [x] [#18 Evidence and reporter explanations](https://github.com/SetraTheXX/next-secure-check/issues/18)
 - [x] [#19 Regression and performance release gate](https://github.com/SetraTheXX/next-secure-check/issues/19)
-- [ ] [#20 v0.5 release and feedback loop](https://github.com/SetraTheXX/next-secure-check/issues/20)
+- [x] [#20 v0.5 release and feedback loop](https://github.com/SetraTheXX/next-secure-check/issues/20)
 
 ### v0.5 compatibility rules
 
@@ -354,23 +376,120 @@ release, not a pivot to full taint analysis: every new signal must have a
 documented source/sink/guard boundary, honest evidence, deterministic output,
 and a reviewed fixture contract.
 
+### Phase 0 - Baseline and request-boundary contract (#29)
+
+- [x] Phase status: Complete; the v0.5 baseline and v0.6 contract are recorded in the decision and validation notes.
+- [x] Link issues #30–#35 to their source/sink/guard/stop boundaries.
+- [x] Preserve existing rule IDs, report identity, output formats, determinism, privacy, and performance rules.
+- [x] Confirm no v0.6 runtime rule behavior was introduced before the contract.
+- [x] Run the existing build, typecheck, lint, test, and release-gate checks.
+
+**Exit criteria:** A reviewer can implement the next slice without guessing
+which request boundary is supported, what evidence is allowed, or where the
+analysis must stop.
+
 ### Implementation order
 
-1. [ ] [Issue #29](https://github.com/SetraTheXX/next-secure-check/issues/29) - freeze the v0.5 baseline and v0.6 request-boundary contract.
-2. [ ] [Issue #30](https://github.com/SetraTheXX/next-secure-check/issues/30) - support Next.js 16 Proxy and dynamic route parameter intent.
-3. [ ] [Issue #31](https://github.com/SetraTheXX/next-secure-check/issues/31) - add bounded Server Action and Server Function auth/validation signals.
-4. [ ] [Issue #32](https://github.com/SetraTheXX/next-secure-check/issues/32) - add bounded unvalidated redirect source-to-sink flow.
-5. [ ] [Issue #33](https://github.com/SetraTheXX/next-secure-check/issues/33) - add bounded SSRF source-to-sink review flow.
-6. [ ] [Issue #34](https://github.com/SetraTheXX/next-secure-check/issues/34) - refine session-cookie and Next.js config hardening signals.
-7. [ ] [Issue #35](https://github.com/SetraTheXX/next-secure-check/issues/35) - run the real-world quality gate and release feedback loop.
+1. [x] [Issue #29](https://github.com/SetraTheXX/next-secure-check/issues/29) - freeze the v0.5 baseline and v0.6 request-boundary contract.
+2. [x] [Issue #30](https://github.com/SetraTheXX/next-secure-check/issues/30) - support Next.js 16 Proxy and dynamic route parameter intent.
+3. [x] [Issue #31](https://github.com/SetraTheXX/next-secure-check/issues/31) - add bounded Server Action and Server Function auth/validation signals.
+4. [x] [Issue #32](https://github.com/SetraTheXX/next-secure-check/issues/32) - add bounded unvalidated redirect source-to-sink flow.
+5. [x] [Issue #33](https://github.com/SetraTheXX/next-secure-check/issues/33) - add bounded SSRF source-to-sink review flow.
+6. [x] [Issue #34](https://github.com/SetraTheXX/next-secure-check/issues/34) - refine session-cookie and Next.js config hardening signals.
+7. [x] [Issue #35](https://github.com/SetraTheXX/next-secure-check/issues/35) - run the real-world quality gate and release feedback loop.
+
+### v0.6 Phase 1 - Proxy and dynamic route boundaries (#30)
+
+- [x] Phase status: Complete; implementation and validation are recorded in [phase-19-v06-proxy-dynamic-routes.md](./docs/validation/phase-19-v06-proxy-dynamic-routes.md).
+- [x] Recognize root and app/package-scoped `proxy.ts`/`proxy.js` entry points alongside legacy middleware files.
+- [x] Preserve same-app auth and rate-limit matcher behavior without building a route graph.
+- [x] Recognize static matcher strings, arrays, and simple matcher-object sources while ignoring dynamic values.
+- [x] Add bounded API request-source evidence for route params and search/request values without changing the existing rule ID.
+- [x] Add validation, allowlist, normalization-guard, App Router, Pages Router, JavaScript, TypeScript, malformed-input, and safe-negative regression coverage.
+
+**Exit criteria:** Proxy and dynamic route signals are visible only at recognized
+boundaries, evidence remains bounded and deterministic, existing middleware
+behavior stays compatible, and the full release gate passes.
+
+### v0.6 Phase 2 - Server Action and Server Function guards (#31)
+
+- [x] Phase status: Complete; implementation and validation are recorded in [phase-20-v06-server-actions.md](./docs/validation/phase-20-v06-server-actions.md).
+- [x] Add one separately documented `auth/server-action-without-guards` signal without changing the existing v0.5 rule identities.
+- [x] Recognize file-level and inline `use server` boundaries, including nested inline Server Functions with direct action/request input.
+- [x] Reuse same-function auth and validation intent with bounded input aliases, static guards, reassignment stops, and unknown-wrapper negatives.
+- [x] Add dedicated rule explanation, rule documentation, compatibility decision, and malformed syntax coverage.
+
+**Exit criteria:** Server Action signals are explicit, bounded, explainable, and
+privacy-safe; partial controls lower deterministically; existing v0.5 fixture
+and report contracts remain unchanged; and the full release gate passes.
+
+### v0.6 Phase 3 - Unvalidated redirect source-to-sink flow (#32)
+
+- [x] Phase status: Complete; implementation and validation are recorded in [phase-21-v06-unvalidated-redirects.md](./docs/validation/phase-21-v06-unvalidated-redirects.md).
+- [x] Add one separately documented `redirect/unvalidated-target` signal without changing the published v0.5 rule identities.
+- [x] Recognize bounded request/query/route/form/body sources and imported App Router, `NextResponse.redirect`, and Pages Router redirect sinks.
+- [x] Recognize static destination equality, allowlists, safe internal-path checks, and same-origin/host guard forms without trusting normalization alone.
+- [x] Stop at cross-file/cross-function flow, dynamic properties, unknown wrappers, reassignment/mutation, unsupported sinks, client components, and aliases beyond two hops.
+- [x] Add App Router, Pages Router, JavaScript/TypeScript, malformed-input, privacy, deterministic-output, and CLI explanation coverage.
+
+**Exit criteria:** Redirect signals are bounded, explainable, privacy-safe, and
+deterministic; recognized guards suppress only when their syntax proves the
+relevant relationship; the historical v0.5 baseline remains unchanged; and
+the full release gate passes.
+
+### v0.6 Phase 4 - Bounded SSRF source-to-sink flow (#33)
+
+- [x] Phase status: Complete; implementation and validation are recorded in [phase-22-v06-ssrf-flow.md](./docs/validation/phase-22-v06-ssrf-flow.md).
+- [x] Add one separately documented `ssrf/unvalidated-outbound-url` signal without changing the published v0.5 rule identities.
+- [x] Recognize server-oriented request/query/route/form/body URL sources and the global `fetch` plus documented `axios`/`got` sink allowlist.
+- [x] Recognize visible static host/origin checks, URL host validation, private-network rejection helpers, and safe proxy helpers without trusting unknown wrappers.
+- [x] Stop at client components, module scope, dynamic sinks/properties, reassignment/mutation, aliases beyond two hops, and cross-file/cross-function flow.
+- [x] Add source/sink/guard, constant/client, alias-boundary, malformed-input, privacy, deterministic-output, shared-flow, and CLI explanation coverage.
+
+**Exit criteria:** SSRF signals are bounded, explainable, privacy-safe, and
+deterministic; recognized guards suppress only when their syntax proves the
+relevant relationship; the historical v0.5 baseline remains unchanged; and the
+full release gate passes.
+
+### v0.6 Phase 5 - Session-cookie and Next.js configuration hardening (#34)
+
+- [x] Phase status: Complete; implementation and validation are recorded in [phase-23-v06-config-hardening.md](./docs/validation/phase-23-v06-config-hardening.md).
+- [x] Add the separately identified `auth/session-cookie-without-security-flags` signal for recognized auth/session-like cookie writes.
+- [x] Recognize visible `httpOnly`, `secure`, and `sameSite` states through bounded App Router, response-cookie, and Pages Router serializer forms without emitting cookie names or values.
+- [x] Refine `headers/missing-security-headers` for supported `next.config` and middleware/proxy patterns with bounded evidence and runtime/dynamic uncertainty wording.
+- [x] Add `config/next-image-domains` for static broad host configuration while keeping `remotePatterns` safe negatives.
+- [x] Add safe, partial, dynamic, App Router, Pages Router, JavaScript, TypeScript, CommonJS config, privacy, and deterministic regression coverage.
+
+**Exit criteria:** Cookie/config signals are bounded, explainable, privacy-safe,
+and deterministic; existing v0.5 fixtures and rule identities remain stable;
+the full release gate passes; and the published npm/Action line is not moved
+until the separate #35 release-quality review.
+
+### v0.6 Phase 6 - Quality gate, release, and feedback (#35)
+
+- [x] **Phase status:** Complete for the published release; local gate, npm smoke, and coordinated Action evidence are recorded in [phase-24-v06-quality-gate.md](./docs/validation/phase-24-v06-quality-gate.md).
+- [x] Keep the frozen v0.5 fixture, report, SARIF, privacy, and performance contract as a compatibility stage.
+- [x] Add a minimized positive/safe matrix covering all five v0.6 development-line rule identities.
+- [x] Add CLI version/help/rule/explanation/fail-on smoke and aligned package/Action/README version checks.
+- [x] Review public Next.js smoke inputs without executing scanned code or storing raw findings; record only bounded aggregate observations.
+- [x] Define the independent review and feedback handoff for crashes, false positives, false negatives, compatibility, privacy, performance, packaging, and docs.
+- [x] Publish the v0.6 npm packages and GitHub release/tag after the maintainer’s npm handoff.
+- [x] Coordinate Action `v1.2.0` and the floating `@v1` tag after npm availability was verified.
+- [x] Refresh the README demo from the published v0.6.0 CLI while preserving the concise summary flow.
+
+**Exit criteria:** The published v0.5 line remains reproducible, all current
+v0.6 signals have positive and safe release checks, public output remains
+private and deterministic, packaging/Action contracts are aligned, and a
+reviewer can turn a real-world observation into a minimized issue without
+making an unreviewed accuracy claim.
 
 ### v0.6 compatibility guardrails
 
-- [ ] Preserve existing rule IDs, CLI flags, output formats, and deterministic SARIF fingerprints unless a separately documented compatibility decision is accepted.
-- [ ] Keep the default path syntax-first, bounded, and fast; TypeChecker remains opt-in research rather than the default engine.
-- [ ] Keep cross-file/cross-function taint, full CFG, heap aliasing, dynamic resolution, full route graphs, and unrestricted plugins out of scope.
-- [ ] Never execute code from a scanned repository.
-- [ ] Treat each finding as an explainable review signal, not proof of exploitability.
+- [x] Preserve existing rule IDs, CLI flags, output formats, and deterministic SARIF fingerprints; separately documented v0.6 rule identities do not repurpose the published baseline.
+- [x] Keep the default path syntax-first, bounded, and fast; TypeChecker remains opt-in research rather than the default engine.
+- [x] Keep cross-file/cross-function taint, full CFG, heap aliasing, dynamic resolution, full route graphs, and unrestricted plugins out of scope.
+- [x] Never execute code from a scanned repository.
+- [x] Treat each finding as an explainable review signal, not proof of exploitability.
 
 **v0.6 success metric:** better request-boundary evidence and fewer unsupported
 guesses, measured by reviewed fixture changes, noise/false-positive notes,
@@ -378,7 +497,7 @@ determinism, privacy, and performance—not by rule count alone.
 
 ## Deferred beyond the first v0.6 slices
 
-These are valuable, but should not block the v0.5 bounded-analysis quality work:
+These are valuable, but should not block current post-release feedback and adoption work:
 
 - [ ] Productized or default TypeChecker/type-aware analysis after a measured opt-in study.
 - [ ] Cross-file/interprocedural taint flow, call graphs, heap/property aliasing, and full CFG analysis.

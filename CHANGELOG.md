@@ -7,7 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes are recorded yet.
+### Documentation
+
+- Corrected the README configuration format list to include SARIF and clarified
+  that `pnpm release:gate` is the current v0.6 compatibility and release gate.
+- Refreshed the validation index and roadmap wording for the post-v0.6 release
+  state.
+
+## [0.6.0] - 2026-08-31
+
+> GitHub release and tag: [v0.6.0](https://github.com/SetraTheXX/next-secure-check/releases/tag/v0.6.0). The four npm packages are published at `0.6.0`, and the reusable Action is coordinated through [v1.2.0](https://github.com/SetraTheXX/next-secure-check/releases/tag/v1.2.0) and `@v1`.
+
+### Release
+
+- Published the four aligned workspace packages at `0.6.0` with 25 built-in rules.
+- Updated the reusable GitHub Action to `next-secure-check@0.6.0`, released it as `v1.2.0`, and coordinated the floating `@v1` tag.
+- Refreshed the reproducible README demo for the published v0.6.0 CLI while keeping the concise three-scan flow.
+
+### Documentation
+
+- Aligned the README first-use flow, demo source wording, roadmap status, and public repository description with the published `v0.6.0` CLI and `v1.2.0` Action.
+- Added the v0.6 quality gate and release-feedback validation note with a minimized five-rule matrix, opt-in smoke observations, exact version contract, and independent review handoff.
+- Separated optional post-release demo and feedback follow-up from the completed v0.5 release gate.
+- Documented the bounded Server Action/Server Function guard signal and its separate v0.6 identity decision.
+- Documented the bounded unvalidated redirect signal, its recognized Next.js sinks, and its separate v0.6 identity decision.
+- Documented the bounded SSRF source-to-sink signal, its recognized outbound HTTP sinks, and its separate v0.6 identity decision.
+- Documented bounded session-cookie flag review, static Next.js header evidence, and broad image-host configuration guidance.
+
+### Added
+
+- Added `auth/server-action-without-guards` for direct or inline `use server` boundaries with action/request input and no visible same-function auth or input-validation intent.
+- Added `redirect/unvalidated-target` for request-derived values reaching recognized redirect sinks without a visible bounded destination guard.
+- Added `ssrf/unvalidated-outbound-url` for request-derived URL-like values reaching recognized server-side HTTP sinks without a visible bounded destination guard.
+- Added `auth/session-cookie-without-security-flags` for recognized auth/session-like cookie writes without statically visible security flags.
+- Added `config/next-image-domains` for static broad `images.domains` configuration in Next.js apps.
+
+### Changed
+
+- Aligned publishable package Node engine metadata with the workspace baseline of `>=20.9.0` and updated the user-facing installation guidance.
+- Recognized Next.js 16 `proxy.ts` alongside legacy `middleware.ts` for bounded same-app auth and rate-limit intent signals.
+- Extended API validation review signals to statically recognizable dynamic route parameters and request search parameters with bounded evidence paths.
+- Kept dynamic matcher values, cross-file flow, full route reachability, and unknown wrappers outside the supported inference boundary.
+- Kept the published v0.5.0 20-rule baseline available for compatibility while publishing the five bounded v0.6 rules; partial guard signals are lowered to LOW.
+- Kept redirect tracking same-function and syntax-first, with recognized allowlists/internal-path checks suppressing signals and dynamic or external-looking targets remaining reviewable.
+- Kept SSRF tracking server-only, same-function, syntax-first, and privacy-safe, with exact sink/source allowlists and visible host/private-network guards; the published v0.5.0 20-rule baseline remains unchanged.
+- Refined `headers/missing-security-headers` to recognize static Next.js `headers()` and middleware/proxy setters, include bounded evidence, and describe dynamic/runtime uncertainty without changing its rule identity.
+- Added bounded Pages Router `Set-Cookie` serializer and CommonJS `next.config.cjs` discovery coverage without expanding the published baseline.
+- Kept the published v0.5.0 20-rule baseline unchanged while the published v0.6.0 line contains 25 rules.
 
 ## [0.5.0] - 2026-08-29
 

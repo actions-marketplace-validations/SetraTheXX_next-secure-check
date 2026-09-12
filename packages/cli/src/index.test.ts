@@ -98,6 +98,50 @@ describe("rules CLI helpers", () => {
     expect(output).toContain("cross-file");
   });
 
+  it("explains Server Action guard signals", () => {
+    const output = formatRuleExplanation(getBuiltInRules(), "auth/server-action-without-guards");
+
+    expect(output).toContain("Rule: auth/server-action-without-guards");
+    expect(output).toContain("public request boundaries");
+    expect(output).toContain("runtime reachability");
+  });
+
+  it("explains bounded redirect signals", () => {
+    const output = formatRuleExplanation(getBuiltInRules(), "redirect/unvalidated-target");
+
+    expect(output).toContain("Rule: redirect/unvalidated-target");
+    expect(output).toContain("open-redirect");
+    expect(output).toContain("same-function sources");
+    expect(output).toContain("cross-file/cross-function flow");
+  });
+
+  it("explains bounded SSRF signals", () => {
+    const output = formatRuleExplanation(getBuiltInRules(), "ssrf/unvalidated-outbound-url");
+
+    expect(output).toContain("Rule: ssrf/unvalidated-outbound-url");
+    expect(output).toContain("server-side request forgery");
+    expect(output).toContain("host allowlist");
+    expect(output).toContain("cross-file/cross-function flow");
+  });
+
+  it("explains session-cookie security flag signals", () => {
+    const output = formatRuleExplanation(getBuiltInRules(), "auth/session-cookie-without-security-flags");
+
+    expect(output).toContain("Rule: auth/session-cookie-without-security-flags");
+    expect(output).toContain("httpOnly");
+    expect(output).toContain("dynamic options");
+    expect(output).toContain("custom cookie wrappers");
+  });
+
+  it("explains broad Next.js image domain signals", () => {
+    const output = formatRuleExplanation(getBuiltInRules(), "config/next-image-domains");
+
+    expect(output).toContain("Rule: config/next-image-domains");
+    expect(output).toContain("images.domains");
+    expect(output).toContain("remotePatterns");
+    expect(output).toContain("Dynamic config");
+  });
+
   it("returns undefined and formats a helpful message for unknown rule ids", () => {
     const rules = getBuiltInRules();
 
@@ -121,7 +165,7 @@ describe("initProject", () => {
       JSON.stringify({ preset: "app", format: "terminal", failOn: "high" }, null, 2) + "\n"
     );
     await expect(readFile(path.join(targetPath, NEXT_SECURE_CHECK_WORKFLOW_PATH), "utf8")).resolves.toContain(
-      "npx --yes next-secure-check@0.5.0 scan . --preset app --format github --fail-on high"
+      `npx --yes next-secure-check@${CLI_VERSION} scan . --preset app --format github --fail-on high`
     );
     await expect(readFile(path.join(targetPath, NEXT_SECURE_CHECK_WORKFLOW_PATH), "utf8")).resolves.toContain(
       "actions/checkout@v7"

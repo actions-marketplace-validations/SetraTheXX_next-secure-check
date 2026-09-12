@@ -22,6 +22,24 @@ const RULE_EXPLANATIONS: Record<string, RuleExplanation> = {
     falsePositiveNote: "Middleware, framework conventions, or external gateways can protect a route even when the handler is minimal.",
     falseNegativeNote: "The check does not build a full cross-file middleware or authorization graph; custom wrappers and external gateways may be missed."
   },
+  "auth/server-action-without-guards": {
+    checks: "Looks for direct Server Actions or Server Functions with a use server directive and action/request input but no visible auth or input-validation intent.",
+    why: "Next.js Server Actions are public request boundaries and should re-authorize the caller and validate client-controlled input.",
+    falsePositiveNote: "A guard in a shared data-access layer, framework adapter, or unknown local wrapper may be valid but is not proven by this syntax-only check; one recognized guard lowers the finding.",
+    falseNegativeNote: "The check does not prove runtime reachability or follow cross-file calls, dynamic exports, or custom wrappers; it only inspects the same function and short local aliases."
+  },
+  "redirect/unvalidated-target": {
+    checks: "Looks for request-derived values reaching imported redirect, permanentRedirect, NextResponse.redirect, or Pages Router getServerSideProps destinations without a recognized path or host guard.",
+    why: "An unvalidated redirect destination can send users to an attacker-controlled location or create a phishing/open-redirect path.",
+    falsePositiveNote: "Fixed destinations, explicit internal-path checks, host/origin allowlists, and deployment controls can make a flow safe even when the surrounding syntax needs review.",
+    falseNegativeNote: "The check is intentionally bounded to recognized same-function sources, sinks, and short aliases; custom wrappers, cross-file/cross-function flow, dynamic properties, and unsupported router/config APIs are not proven."
+  },
+  "ssrf/unvalidated-outbound-url": {
+    checks: "Looks for request-derived URL-like values reaching global fetch or exact-import axios/got HTTP sinks in exported server handlers without a visible host allowlist, URL guard, private-network rejection, or safe proxy helper.",
+    why: "Server-side requests to attacker-controlled URLs can reach internal services or metadata endpoints and create a server-side request forgery path.",
+    falsePositiveNote: "Fixed URLs, static host allowlists, and visible same-file URL or private-network guards can be safe; middleware, proxy, or infrastructure controls outside the file are not proven.",
+    falseNegativeNote: "The check is intentionally bounded to same-file server entries, known sinks, URL-like request fields, and at most two aliases; cross-file/cross-function flow, dynamic sinks, unknown wrappers, DNS/network probing, and other request fields are outside the boundary."
+  },
   "auth/login-without-rate-limit": {
     checks: "Looks for login/auth routes without route-level or matching middleware rate-limit signals.",
     why: "Authentication endpoints are common brute-force and credential-stuffing targets.",
@@ -59,10 +77,22 @@ const RULE_EXPLANATIONS: Record<string, RuleExplanation> = {
     falseNegativeNote: "The rule is name- and context-based; secrets hidden behind computed names or other configuration channels may be missed."
   },
   "headers/missing-security-headers": {
-    checks: "Looks for missing common security header configuration in Next.js apps.",
+    checks: "Looks for missing common security header configuration in recognized Next.js headers() and middleware/proxy header setters.",
     why: "Security headers help reduce XSS, clickjacking, content sniffing, and referrer leakage risks.",
-    falsePositiveNote: "Headers configured outside the app, for example at a reverse proxy, may not be visible.",
-    falseNegativeNote: "Headers configured by reverse proxies, hosting, or dynamic runtime code may be missed."
+    falsePositiveNote: "Headers configured outside the app, dynamic values, or framework adapters may be valid even when this bounded syntax check reports a gap.",
+    falseNegativeNote: "The check does not evaluate runtime header values or headers configured by reverse proxies, hosting, or dynamic framework code."
+  },
+  "auth/session-cookie-without-security-flags": {
+    checks: "Looks for recognized auth/session-like cookies written through cookies().set, response.cookies.set, or a bounded Pages Router Set-Cookie serializer without visible httpOnly, secure, and sameSite flags.",
+    why: "Session cookies need deliberate browser and transport protections to reduce script access and accidental cross-site transmission.",
+    falsePositiveNote: "Only auth/session-like cookie names are considered, and dynamic options remain low-confidence review signals; some intentional cross-site flows may require a different sameSite policy.",
+    falseNegativeNote: "The check does not resolve custom cookie wrappers, dynamic names, cross-file helpers, runtime TLS/browser behavior, or cookie writes through unsupported APIs."
+  },
+  "config/next-image-domains": {
+    checks: "Looks for static host entries under images.domains in a Next.js config.",
+    why: "The broad images.domains form does not constrain protocol, port, or pathname as precisely as remotePatterns.",
+    falsePositiveNote: "A deliberately broad image host may be acceptable for a specific deployment; review the allowed origins and replace it when narrower constraints are possible.",
+    falseNegativeNote: "Dynamic config, computed objects, and runtime image-host policy are not resolved; remotePatterns are recognized as the constrained alternative."
   },
   "upload/missing-file-type-validation": {
     checks: "Looks for upload route handlers without file type validation signals.",

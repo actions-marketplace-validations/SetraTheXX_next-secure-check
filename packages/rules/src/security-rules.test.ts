@@ -979,6 +979,379 @@ describe("built-in security rules", () => {
     expect(result.findings.some((finding) => finding.ruleId === "headers/missing-security-headers")).toBe(false);
   });
 
+  it("detects auth-like cookie writes without complete security flags without exposing values", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        "  cookies().set('session', process.env.SESSION_TOKEN, { secure: true });",
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({
+      severity: "MEDIUM",
+      confidence: "MEDIUM",
+      filePath: "app/api/session/route.ts",
+      line: 3
+    });
+    expect(finding?.evidence).toContain("httpOnly");
+    expect(finding?.evidence).toContain("visible secure");
+    expect(finding?.evidence).toContain("sameSite");
+    expect(finding?.evidence).not.toContain("SESSION_TOKEN");
+    expect(finding?.description).toContain("review signal");
+  });
+
+  it("does not flag a fully protected auth-like cookie written with the object form", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        'import { cookies } from "next/headers";',
+        'export async function createSession() { cookies().set({ name: "session", value: process.env.SESSION_TOKEN, httpOnly: true, secure: true, sameSite: "lax" }); }'
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "auth/session-cookie-without-security-flags")).toEqual([]);
+  });
+
+  it("recognizes a partial cookie store created with await cookies", async () => {
+    const result = await scanFixture({
+      "pages/api/session.ts": [
+        'import { cookies } from "next/headers";',
+        "export default async function handler() {",
+        "  const cookieStore = await cookies();",
+        '  cookieStore.set("session", process.env.SESSION_TOKEN, { httpOnly: true, secure: true });',
+        "}"
+      ].join("\n")
+    });
+
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({
+      severity: "LOW",
+      confidence: "LOW",
+      filePath: "pages/api/session.ts",
+      line: 4
+    });
+    expect(finding?.evidence).toContain("sameSite");
+  });
+
+  it("keeps dynamic auth-like cookie options as a low-confidence review signal", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  cookies().set("auth_token", process.env.SESSION_TOKEN, { httpOnly: true, secure: process.env.COOKIE_SECURE, sameSite: cookieSameSite });',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW" });
+    expect(finding?.evidence).toContain("dynamic secure, sameSite");
+    expect(finding?.evidence).not.toContain("COOKIE_SECURE");
+    expect(finding?.description).toContain("not proof");
+  });
+
+  it("treats shorthand cookie flags as dynamic", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        "  const httpOnly = getCookiePolicy();",
+        '  cookies().set("session", process.env.SESSION_TOKEN, { httpOnly, secure: true, sameSite: "lax" });',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW" });
+    expect(finding?.evidence).toContain("dynamic httpOnly");
+    expect(finding?.evidence).not.toContain("missing httpOnly");
+  });
+
+  it("recognizes a directly awaited cookies store", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  (await cookies()).set("session", process.env.SESSION_TOKEN, { httpOnly: true, secure: true });',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW" });
+    expect(finding?.evidence).toContain("visible httpOnly, secure");
+    expect(finding?.evidence).toContain("missing sameSite");
+  });
+
+  it("keeps cookie findings deterministic and privacy-safe", async () => {
+    const fixture = {
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  cookies().set("session", process.env.SESSION_TOKEN, { secure: true });',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    };
+    const [first, second] = await Promise.all([scanFixture(fixture), scanFixture(fixture)]);
+
+    expect(first.findings).toEqual(second.findings);
+    expect(JSON.stringify(first.findings)).not.toContain("SESSION_TOKEN");
+  });
+
+  it("treats an options identifier as dynamic rather than claiming flags are absent", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        "  const options = getCookieOptions();",
+        '  cookies().set("session", process.env.SESSION_TOKEN, options);',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW" });
+    expect(finding?.evidence).toContain("dynamic httpOnly, secure, sameSite");
+  });
+
+  it("does not treat a cookie options spread as a complete static guarantee", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  cookies().set("session", process.env.SESSION_TOKEN, { httpOnly: true, secure: true, sameSite: "lax", ...getCookieOptions() });',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW" });
+    expect(finding?.evidence).toContain("dynamic httpOnly, secure, sameSite");
+  });
+
+  it("does not carry a cookie store alias across function boundaries", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { cookies } from "next/headers";',
+        "async function createStore() {",
+        "  const cookieStore = await cookies();",
+        "  return cookieStore;",
+        "}",
+        "export async function POST() {",
+        '  cookieStore.set("session", process.env.SESSION_TOKEN);',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "auth/session-cookie-without-security-flags")).toEqual([]);
+  });
+
+  it("ignores non-auth cookies and client-side cookie code", async () => {
+    const result = await scanFixture({
+      "app/settings/page.tsx": [
+        '"use client";',
+        "export function Settings() {",
+        '  cookies().set("accessibility", "dark");',
+        "  return null;",
+        "}"
+      ].join("\n"),
+      "app/api/preferences/route.ts": [
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  cookies().set("tokenizer", "dark");',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "auth/session-cookie-without-security-flags")).toEqual([]);
+  });
+
+  it("does not treat a later string literal as a client directive", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'const label = "use client";',
+        'import { cookies } from "next/headers";',
+        "export async function POST() {",
+        '  cookies().set("session", process.env.SESSION_TOKEN);',
+        "  return Response.json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "auth/session-cookie-without-security-flags")).toBe(true);
+  });
+
+  it("recognizes response.cookies.set in an App Router handler", async () => {
+    const result = await scanFixture({
+      "app/api/session/route.ts": [
+        'import { NextResponse } from "next/server";',
+        "export async function POST() {",
+        "  const response = NextResponse.json({ ok: true });",
+        '  response.cookies.set("session", process.env.SESSION_TOKEN, { httpOnly: true, secure: true });',
+        "  return response;",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW", filePath: "app/api/session/route.ts", line: 4 });
+    expect(finding?.evidence).toContain("sameSite");
+  });
+
+  it("recognizes a bounded serialized Set-Cookie write in a JavaScript Pages Router handler", async () => {
+    const result = await scanFixture({
+      "pages/api/session.js": [
+        'import { serialize } from "cookie";',
+        "export default function handler(req, res) {",
+        '  res.setHeader("Set-Cookie", serialize("session", process.env.SESSION_TOKEN, { httpOnly: true, secure: true }));',
+        "  res.status(200).json({ ok: true });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "auth/session-cookie-without-security-flags");
+
+    expect(finding).toMatchObject({ severity: "LOW", confidence: "LOW", filePath: "pages/api/session.js", line: 3 });
+    expect(finding?.evidence).toContain("visible httpOnly, secure");
+    expect(finding?.evidence).toContain("missing sameSite");
+  });
+
+  it("does not treat header names in unrelated config strings as configured security headers", async () => {
+    const result = await scanFixture({
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.js": [
+        'const documentation = "Content-Security-Policy X-Frame-Options X-Content-Type-Options Referrer-Policy Permissions-Policy";',
+        "module.exports = { reactStrictMode: true };"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "headers/missing-security-headers");
+
+    expect(finding).toBeDefined();
+    expect(finding?.description).toContain("Content-Security-Policy");
+    expect(finding?.evidence).toContain("No recognized static");
+  });
+
+  it("reports bounded header evidence and uncertainty for dynamic header values", async () => {
+    const result = await scanFixture({
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.ts": [
+        'const unrelatedText = "frame-ancestors \'none\'";',
+        "const dynamicPolicy = createPolicy();",
+        "export default {",
+        "  async headers() {",
+        "    return [{ source: '/(.*)', headers: [{ key: 'Content-Security-Policy', value: dynamicPolicy }] }];",
+        "  }",
+        "};"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "headers/missing-security-headers");
+
+    expect(finding).toBeDefined();
+    expect(finding?.evidence).toContain("Content-Security-Policy");
+    expect(finding?.evidencePath).toBe("next.config.ts: headers()");
+    expect(finding?.description).toContain("frame protection");
+    expect(finding?.description).toContain("Dynamic header names or values were not evaluated");
+  });
+
+  it("does not flag fully named but dynamic security headers as missing", async () => {
+    const result = await scanFixture({
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.js": [
+        "const policy = buildPolicy();",
+        "const frame = buildFramePolicy();",
+        "const contentType = buildContentTypePolicy();",
+        "const referrer = buildReferrerPolicy();",
+        "const permissions = buildPermissionsPolicy();",
+        "module.exports = {",
+        "  async headers() {",
+        "    return [{ source: '/(.*)', headers: [",
+        "      { key: 'Content-Security-Policy', value: policy },",
+        "      { key: 'X-Frame-Options', value: frame },",
+        "      { key: 'X-Content-Type-Options', value: contentType },",
+        "      { key: 'Referrer-Policy', value: referrer },",
+        "      { key: 'Permissions-Policy', value: permissions }",
+        "    ] }];",
+        "  }",
+        "};"
+      ].join("\n")
+    });
+    expect(result.findings.filter((finding) => finding.ruleId === "headers/missing-security-headers")).toEqual([]);
+  });
+
+  it("detects broad Next.js images.domains configuration with bounded evidence", async () => {
+    const result = await scanFixture({
+      "package.json": '{"name":"demo","dependencies":{"next":"latest"}}',
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.mjs": 'export default { images: { domains: ["cdn.example.com"] } };'
+    });
+    const finding = result.findings.find((item) => item.ruleId === "config/next-image-domains");
+
+    expect(finding).toMatchObject({
+      severity: "MEDIUM",
+      confidence: "HIGH",
+      filePath: "next.config.mjs",
+      line: 1
+    });
+    expect(finding?.evidence).toContain("images.domains");
+    expect(finding?.evidence).not.toContain("cdn.example.com");
+    expect(finding?.description).toContain("broad");
+    expect(finding?.recommendation).toContain("remotePatterns");
+  });
+
+  it("recognizes broad image domains in a CommonJS Next.js config", async () => {
+    const result = await scanFixture({
+      "package.json": '{"name":"demo","dependencies":{"next":"latest"}}',
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.cjs": 'module.exports = { images: { domains: ["cdn.example.com"] } };'
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "config/next-image-domains")).toBe(true);
+  });
+
+  it.each([
+    ["constrained remotePatterns", 'export default { images: { remotePatterns: [{ protocol: "https", hostname: "cdn.example.com", pathname: "/assets/**" }] } };'],
+    ["dynamic domains", "const imageDomains = getImageDomains(); export default { images: { domains: imageDomains } };"],
+    ["empty domains", "export default { images: { domains: [] } };"],
+    ["unrelated domains property", "const settings = { domains: [\"cdn.example.com\"] }; export default { settings };"],
+  ])("does not flag %s as a proven broad image-host configuration", async (_label, config) => {
+    const result = await scanFixture({
+      "package.json": '{"name":"demo","dependencies":{"next":"latest"}}',
+      "app/page.tsx": "export default function Page() { return null; }",
+      "next.config.js": config
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "config/next-image-domains")).toEqual([]);
+  });
+
+  it("recognizes complete security headers in a JavaScript Proxy entry point", async () => {
+    const result = await scanFixture({
+      "app/page.tsx": "export default function Page() { return null; }",
+      "proxy.js": [
+        "export function proxy(request) {",
+        "  const response = NextResponse.next();",
+        '  response.headers.set("Content-Security-Policy", "default-src \'self\'; frame-ancestors \'none\'");',
+        '  response.headers.set("X-Content-Type-Options", "nosniff");',
+        '  response.headers.set("Referrer-Policy", "no-referrer");',
+        '  response.headers.set("Permissions-Policy", "camera=()");',
+        "  return response;",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "headers/missing-security-headers")).toEqual([]);
+  });
+
   it("detects NEXT_PUBLIC secret-like variables", async () => {
     const result = await scanFixture({ ".env": "NEXT_PUBLIC_STRIPE_SECRET=sk_test_123" });
 
@@ -1494,6 +1867,116 @@ describe("built-in security rules", () => {
     expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(true);
   });
 
+  it("detects unvalidated dynamic route parameters with bounded evidence", async () => {
+    const result = await scanFixture({
+      "app/api/users/[id]/route.ts": [
+        "export async function GET(request, { params }) {",
+        "  return Response.json({ id: params.id });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "validation/api-route-without-validation");
+
+    expect(finding).toMatchObject({
+      filePath: "app/api/users/[id]/route.ts",
+      evidencePath: "params -> id"
+    });
+    expect(finding?.line).toBeUndefined();
+    expect(finding?.column).toBeUndefined();
+  });
+
+  it("detects unvalidated Pages Router query parameters", async () => {
+    const result = await scanFixture({
+      "pages/api/users/[id].js": "export default function handler(req, res) { res.json({ id: req.query.id }); }"
+    });
+    const finding = result.findings.find((item) => item.ruleId === "validation/api-route-without-validation");
+
+    expect(finding?.evidencePath).toBe("req.query.id");
+  });
+
+  it("detects request nextUrl search parameters with bounded evidence", async () => {
+    const result = await scanFixture({
+      "app/api/search/route.ts": [
+        "export async function GET(request) {",
+        "  const query = request.nextUrl.searchParams.get(\"q\");",
+        "  return Response.json({ query });",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((item) => item.ruleId === "validation/api-route-without-validation");
+
+    expect(finding?.evidencePath).toBe("request.nextUrl.searchParams.get()");
+  });
+
+  it("does not flag dynamic route parameters guarded by a static allowlist", async () => {
+    const result = await scanFixture({
+      "app/api/users/[id]/route.ts": [
+        "export async function GET(request, { params }) {",
+        "  if (![\"public\", \"team\"].includes(params.id)) return Response.json({ ok: false }, { status: 404 });",
+        "  return Response.json({ id: params.id });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(false);
+  });
+
+  it("does not flag dynamic route parameters guarded by a Set allowlist", async () => {
+    const result = await scanFixture({
+      "app/api/users/[id]/route.ts": [
+        "const ALLOWED_IDS = new Set([\"public\", \"team\"]);",
+        "export async function GET(request, { params }) {",
+        "  if (!ALLOWED_IDS.has(params.id)) return Response.json({ ok: false }, { status: 404 });",
+        "  return Response.json({ id: params.id });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(false);
+  });
+
+  it("does not flag dynamic route parameters guarded by a static comparison", async () => {
+    const result = await scanFixture({
+      "app/api/users/[id]/route.ts": [
+        "export async function GET(request, { params }) {",
+        "  if (params.id !== \"public\") return Response.json({ ok: false }, { status: 404 });",
+        "  return Response.json({ id: params.id });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(false);
+  });
+
+  it("does not flag dynamic route parameters behind a visible normalization guard", async () => {
+    const result = await scanFixture({
+      "app/api/users/[id]/route.ts": [
+        "export async function GET(request, { params }) {",
+        "  if (!normalizePath(params.id)) return Response.json({ ok: false }, { status: 404 });",
+        "  return Response.json({ id: params.id });",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(false);
+  });
+
+  it("does not crash on malformed dynamic API route syntax", async () => {
+    await expect(
+      scanFixture({
+        "app/api/users/[id]/route.ts": "export async function GET(request, { params ) { return Response.json({ id: params.id });"
+      })
+    ).resolves.toBeDefined();
+  });
+
+  it("does not treat dynamic page parameters as API input", async () => {
+    const result = await scanFixture({
+      "app/users/[id]/page.tsx": "export default function Page({ params }) { return <p>{params.id}</p>; }"
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "validation/api-route-without-validation")).toBe(false);
+  });
+
   it("does not flag API routes with input validation", async () => {
     const result = await scanFixture({
       "app/api/users/route.ts": "import { z } from 'zod'; const schema = z.object({ name: z.string() }); export async function POST(req) { const body = await req.json(); return Response.json({ ok: true }); }"
@@ -1714,6 +2197,24 @@ describe("built-in security rules", () => {
     expect(result.findings.some((finding) => finding.ruleId === "auth/admin-route-without-auth")).toBe(false);
   });
 
+  it("does not flag admin routes covered by a same-app proxy matcher", async () => {
+    const result = await scanFixture({
+      "proxy.ts": [
+        "import { auth } from '@clerk/nextjs/server';",
+        "export function proxy() { return auth(); }",
+        "export const config = { matcher: '/api/admin/:path*' };"
+      ].join("\n"),
+      "app/api/admin/route.ts": "export async function GET() { return Response.json({ users: [] }); }",
+      "apps/other/app/api/admin/route.ts": "export async function GET() { return Response.json({ users: [] }); }"
+    });
+
+    expect(
+      result.findings
+        .filter((finding) => finding.ruleId === "auth/admin-route-without-auth")
+        .map((finding) => finding.filePath)
+    ).toEqual(["apps/other/app/api/admin/route.ts"]);
+  });
+
   it("does not flag admin routes covered by broad API auth middleware matcher", async () => {
     const result = await scanFixture({
       "middleware.ts": [
@@ -1878,5 +2379,574 @@ describe("built-in security rules", () => {
     });
 
     expect(result.findings.some((finding) => finding.ruleId === "config/next-powered-by-header")).toBe(false);
+  });
+
+  it("detects file-level Server Actions with action input", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        "export async function saveProfile(formData) {",
+        "  const name = formData.get('name');",
+        "  return save(name);",
+        "}",
+        "export function noInput() { return 1; }"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      severity: "MEDIUM",
+      confidence: "MEDIUM",
+      evidencePath: "formData.get()"
+    });
+    expect(findings[0]?.description).toContain('"saveProfile"');
+  });
+
+  it("detects inline use server actions and ignores ordinary exported helpers", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        "export async function updateProfile(input) {",
+        '  "use server";',
+        "  return persist(input);",
+        "}",
+        "function Page({ params }) {",
+        "  async function updatePost(formData) {",
+        '    "use server";',
+        "    return persist(params.id, formData);",
+        "  }",
+        "  return null;",
+        "}",
+        "export async function helper(input) {",
+        "  return input;",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.map((finding) => finding.description)).toEqual(
+      expect.arrayContaining([expect.stringContaining('"updateProfile"'), expect.stringContaining('"updatePost"')])
+    );
+  });
+
+  it("supports exported Server Action variables and ignores input-free actions", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        "export const saveProfile = async (payload) => persist(payload);",
+        "export const refreshCache = async () => revalidatePath('/');"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ evidencePath: "payload" });
+  });
+
+  it("recognizes request-like Server Action sources without explicit parameters", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        "export async function inspectHeaders() {",
+        "  const token = headers().get('authorization');",
+        "  if (['admin'].includes(token)) return token;",
+        "  return null;",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((candidate) => candidate.ruleId === "auth/server-action-without-guards");
+
+    expect(finding).toMatchObject({ severity: "LOW", evidencePath: "headers().get()" });
+  });
+
+  it("lowers the Server Action signal when one recognized guard is visible", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        'import { auth } from "next-auth";',
+        "export async function authOnly(input) {",
+        "  const session = await auth();",
+        "  return input;",
+        "}",
+        "export async function validationOnly(input) {",
+        "  const parsed = schema.safeParse(input);",
+        "  return parsed;",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.every((finding) => finding.severity === "LOW")).toBe(true);
+    expect(findings.map((finding) => finding.description)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("input validation"),
+        expect.stringContaining("authentication")
+      ])
+    );
+  });
+
+  it("suppresses a Server Action when auth and input validation are both visible", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        'import { auth } from "next-auth";',
+        "export async function save(input) {",
+        "  const session = await auth();",
+        "  if (!['safe'].includes(input)) return;",
+        "  return schema.safeParse(input);",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "auth/server-action-without-guards")).toBe(false);
+  });
+
+  it("keeps unknown Server Action wrappers reviewable and stops a reassigned alias", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        '"use server";',
+        "function ensureAccess(value) { return value; }",
+        "export async function allowlisted(input) {",
+        "  const first = input;",
+        "  const second = first;",
+        "  if (ALLOWED_IDS.has(second)) return second;",
+        "  return input;",
+        "}",
+        "export async function reassigned(input) {",
+        "  let value = input;",
+        "  value = normalize(value);",
+        "  if (ALLOWED_IDS.has(value)) return value;",
+        "  ensureAccess(input);",
+        "  return value;",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.find((finding) => finding.description.includes('"allowlisted"'))).toMatchObject({ severity: "LOW" });
+    expect(findings.find((finding) => finding.description.includes('"reassigned"'))).toMatchObject({ severity: "MEDIUM" });
+  });
+
+  it("does not crash on malformed Server Action syntax", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": '"use server"; export async function broken( { const value = request.json();'
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "auth/server-action-without-guards")).toEqual([]);
+  });
+
+  it("detects request-derived values passed to redirect", async () => {
+    const result = await scanFixture({
+      "app/login/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Login({ searchParams }) {",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((candidate) => candidate.ruleId === "redirect/unvalidated-target");
+
+    expect(finding).toMatchObject({
+      severity: "MEDIUM",
+      confidence: "MEDIUM",
+      evidencePath: "searchParams.get()"
+    });
+  });
+
+  it("supports permanentRedirect and NextResponse.redirect sinks", async () => {
+    const result = await scanFixture({
+      "app/actions.ts": [
+        'import { permanentRedirect } from "next/navigation";',
+        'import { NextResponse } from "next/server";',
+        "export async function move(request) {",
+        "  permanentRedirect(request.nextUrl.searchParams.get('next'));",
+        "  return NextResponse.redirect(request.url);",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((candidate) => candidate.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.map((finding) => finding.evidencePath)).toEqual([
+      "request.nextUrl.searchParams.get()",
+      "request.url"
+    ]);
+  });
+
+  it("supports Pages Router getServerSideProps redirect destinations", async () => {
+    const result = await scanFixture({
+      "pages/login.tsx": [
+        "export async function getServerSideProps({ query }) {",
+        "  const destination = query.next;",
+        "  return { redirect: { destination, permanent: false } };",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((candidate) => candidate.ruleId === "redirect/unvalidated-target");
+
+    expect(finding).toMatchObject({
+      severity: "MEDIUM",
+      evidencePath: "query.next"
+    });
+    expect(finding?.description).toContain("getServerSideProps.redirect.destination");
+  });
+
+  it("suppresses fixed and visibly guarded redirect targets", async () => {
+    const result = await scanFixture({
+      "app/redirects/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "const ALLOWED_PATHS = ['/dashboard', '/settings'];",
+        "export default function Page({ searchParams }) {",
+        "  const target = searchParams.get('next');",
+        "  if (!ALLOWED_PATHS.includes(target)) return null;",
+        "  redirect(target);",
+        "  redirect('/dashboard');",
+        "}"
+      ].join("\n"),
+      "app/internal/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const target = searchParams.get('next');",
+        "  if (!target.startsWith('/') || target.startsWith('//')) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/local-allowlist/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const ALLOWED_PATHS = ['/dashboard'];",
+        "  const target = searchParams.get('next');",
+        "  if (!ALLOWED_PATHS.includes(target)) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "redirect/unvalidated-target")).toBe(false);
+  });
+
+  it("keeps weak redirect checks reviewable and distinguishes destination shapes", async () => {
+    const result = await scanFixture({
+      "app/weak/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const target = searchParams.get('next');",
+        "  if (!target.startsWith('/')) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/normalized/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams, request }) {",
+        "  const target = searchParams.get('next');",
+        "  const normalized = new URL(target, request.url);",
+        "  redirect(normalized);",
+        "}"
+      ].join("\n"),
+      "app/relative/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  redirect(`/welcome/${searchParams.get('next')}`);",
+        "}"
+      ].join("\n"),
+      "app/external/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  redirect(`https://example.test/${searchParams.get('next')}`);",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(4);
+    expect(findings.find((finding) => finding.filePath === "app/weak/page.tsx")).toMatchObject({ severity: "MEDIUM" });
+    expect(findings.find((finding) => finding.filePath === "app/normalized/page.tsx")).toMatchObject({ severity: "MEDIUM" });
+    expect(findings.find((finding) => finding.filePath === "app/relative/page.tsx")).toMatchObject({ severity: "LOW" });
+    expect(findings.find((finding) => finding.filePath === "app/external/page.tsx")).toMatchObject({ severity: "MEDIUM" });
+    expect(findings.find((finding) => finding.filePath === "app/relative/page.tsx")?.description).toContain("internal-relative");
+  });
+
+  it("keeps redirect tracking bounded across aliases and stops unsafe boundaries", async () => {
+    const result = await scanFixture({
+      "app/bounded/page.tsx": [
+        'import { redirect as go } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const first = searchParams.get('next');",
+        "  const second = first;",
+        "  const target = second;",
+        "  go(target);",
+        "}"
+      ].join("\n"),
+      "app/too-deep/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const first = searchParams.get('next');",
+        "  const second = first;",
+        "  const third = second;",
+        "  const target = third;",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/reassigned/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  let target = searchParams.get('next');",
+        "  target = normalize(target);",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/wrapper/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "function normalize(value) { return value; }",
+        "export default function Page({ searchParams }) {",
+        "  const target = normalize(searchParams.get('next'));",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/get-wrapper/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "const externalStore = { get(value) { return value; } };",
+        "export default function Page({ searchParams }) {",
+        "  const target = searchParams.get('next');",
+        "  externalStore.get(target);",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/boundary/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "function send(value) { redirect(value); }",
+        "export default function Page({ searchParams }) {",
+        "  send(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/mutated/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  let target = searchParams.get('next');",
+        "  target += '/safe';",
+        "  redirect(target);",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      filePath: "app/bounded/page.tsx",
+      evidencePath: "searchParams.get() -> second -> target"
+    });
+  });
+
+  it("recognizes request body and form-data redirect sources", async () => {
+    const result = await scanFixture({
+      "app/api/body/route.ts": [
+        'import { redirect } from "next/navigation";',
+        "export async function POST(request) {",
+        "  const body = await request.json();",
+        "  redirect(body.next);",
+        "}"
+      ].join("\n"),
+      "app/api/form/route.ts": [
+        'import { redirect } from "next/navigation";',
+        "export async function POST(request) {",
+        "  const form = await request.formData();",
+        "  redirect(form.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/api/context-form/route.ts": [
+        'import { redirect } from "next/navigation";',
+        "export async function POST(context) {",
+        "  redirect(context.formData.get('next'));",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(3);
+    expect(findings.map((finding) => finding.evidencePath)).toEqual([
+      "request.json() -> next",
+      "context.formData.get()",
+      "request.formData() -> get()"
+    ]);
+  });
+
+  it("does not treat client components or unrelated redirect helpers as server sinks", async () => {
+    const result = await scanFixture({
+      "app/client/page.tsx": [
+        '"use client";',
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/local/page.tsx": [
+        "function redirect(value) {}",
+        "export default function Page({ searchParams }) {",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "pages/static.tsx": [
+        "export async function getStaticProps({ params }) {",
+        "  return { props: { next: params.next } };",
+        "}"
+      ].join("\n"),
+      "app/shadowed/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  const redirect = (value) => value;",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/shadowed-function/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  function redirect(value) { return value; }",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target").map((finding) => finding.filePath)).toEqual([]);
+  });
+
+  it("recognizes same-origin and static host allowlist guards", async () => {
+    const result = await scanFixture({
+      "app/origin/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams, request }) {",
+        "  const target = searchParams.get('next');",
+        "  if (new URL(target, request.url).origin !== request.url.origin) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/host/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams, request }) {",
+        "  const target = searchParams.get('next');",
+        "  if (!new Set(['example.test']).has(new URL(target, request.url).host)) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.some((finding) => finding.ruleId === "redirect/unvalidated-target")).toBe(false);
+  });
+
+  it("trusts only locally proven redirect guard helpers", async () => {
+    const result = await scanFixture({
+      "app/proven-helper/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "function isSafeRedirect(value) { return value.startsWith('/') && !value.startsWith('//'); }",
+        "const isAlsoSafe = (value) => value.startsWith('/') && !value.startsWith('//');",
+        "export default function Page({ searchParams }) {",
+        "  if (!isSafeRedirect(searchParams.get('next'))) return null;",
+        "  if (!isAlsoSafe(searchParams.get('next'))) return null;",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/unknown-helper/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "function isSafeRedirect(value) { return Boolean(value); }",
+        "export default function Page({ searchParams }) {",
+        "  if (!isSafeRedirect(searchParams.get('next'))) return null;",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/dynamic-allowlist/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "const ALLOWED_PATHS = loadAllowedPaths();",
+        "export default function Page({ searchParams }) {",
+        "  const target = searchParams.get('next');",
+        "  if (!ALLOWED_PATHS.includes(target)) return null;",
+        "  redirect(target);",
+        "}"
+      ].join("\n"),
+      "app/allowlist-helper/page.tsx": [
+        'import { redirect } from "next/navigation";',
+        "const ALLOWED_PATHS = ['/dashboard'];",
+        "function isAllowedRedirect(value) { return ALLOWED_PATHS.includes(value); }",
+        "export default function Page({ searchParams }) {",
+        "  if (!isAllowedRedirect(searchParams.get('next'))) return null;",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.map((finding) => finding.filePath)).toEqual([
+      "app/dynamic-allowlist/page.tsx",
+      "app/unknown-helper/page.tsx"
+    ]);
+  });
+
+  it("supports JavaScript and JSX redirect sources", async () => {
+    const result = await scanFixture({
+      "app/javascript/page.js": [
+        'import { redirect } from "next/navigation";',
+        "export default function Page({ searchParams }) {",
+        "  redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n"),
+      "app/jsx/page.jsx": [
+        'import { NextResponse } from "next/server";',
+        "export default function Page({ searchParams }) {",
+        "  return NextResponse.redirect(searchParams.get('next'));",
+        "}"
+      ].join("\n")
+    });
+    const findings = result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target");
+
+    expect(findings).toHaveLength(2);
+    expect(findings.map((finding) => finding.filePath)).toEqual([
+      "app/javascript/page.js",
+      "app/jsx/page.jsx"
+    ]);
+  });
+
+  it("does not crash on malformed redirect syntax", async () => {
+    const result = await scanFixture({
+      "app/broken/page.tsx": 'import { redirect } from "next/navigation"; export default function Page({ searchParams { redirect(searchParams.get("next"));'
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "redirect/unvalidated-target")).toEqual([]);
+  });
+
+  it("detects bounded request-derived URLs reaching outbound fetch", async () => {
+    const result = await scanFixture({
+      "app/api/proxy/route.ts": [
+        "export async function POST(request) {",
+        "  const url = request.query.url;",
+        "  await fetch(url);",
+        "}"
+      ].join("\n")
+    });
+    const finding = result.findings.find((candidate) => candidate.ruleId === "ssrf/unvalidated-outbound-url");
+
+    expect(finding).toMatchObject({
+      severity: "HIGH",
+      confidence: "MEDIUM",
+      evidencePath: "request.query -> url",
+      evidence: "await fetch(url);"
+    });
+    expect(finding?.description).toContain("fetch");
+  });
+
+  it("suppresses a bounded SSRF flow with a visible static host allowlist", async () => {
+    const result = await scanFixture({
+      "app/api/proxy/route.ts": [
+        'const ALLOWED_HOSTS = ["api.example.com"];',
+        "export async function POST(request) {",
+        "  const url = request.query.url;",
+        "  if (!ALLOWED_HOSTS.includes(new URL(url).hostname)) return Response.json({ ok: false });",
+        "  await fetch(url);",
+        "}"
+      ].join("\n")
+    });
+
+    expect(result.findings.filter((finding) => finding.ruleId === "ssrf/unvalidated-outbound-url")).toEqual([]);
   });
 });
